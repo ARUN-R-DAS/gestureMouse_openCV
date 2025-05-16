@@ -1,3 +1,5 @@
+#--------------------------------  @RUN ----------------------------------------------------------
+# If python version is 3.10 or above you will have to downgrade to 3.9 to install certain packages
 #-------------------Imports and Setup-----------------------------------------------------------------------------------
 import cv2                  # For webcam capture & image processing
 import mediapipe as mp      # For hand landmark detection
