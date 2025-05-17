@@ -7,19 +7,31 @@ import pyautogui            # To control mouse cursor
 pyautogui.FAILSAFE = False  # Disables emergency stop when moving mouse to corner
 import math                 # To calculate distance between thumb and index fingertip : Pinch detection
 
+#------------------ Setting always on top window mode --------------------------------------------
+# import pygetwindow as gw
+# import win32gui
+# import win32con
+#
+# def make_window_always_on_top(window_name):
+#     try:
+#         window = gw.getWindowswithTitle(window_name)[0]
+#         win32gui.SetWindowPos(window._hWnd,win32con.HWND_TOPMOST,0,0,0,0,win32con.SWP_NOMOVE|win32con.SWP_NOSIZE)
+#     except IndexError:
+#         pass # Window not found yet (first Few frame) , Ignore
 #-------------------Initialize camera and libraries --------------------------------------------------------------------
 cap = cv2.VideoCapture(0)           # Starts webcam
 mpHands = mp.solutions.hands        # Load MediaPipe  hand module
-hands = mpHands.Hands()             # Create hand detection object
+hands = mpHands.Hands(max_num_hands=1)             # Create hand detection object ( Only detect one hand even if multiple are there )
 mpDraw = mp.solutions.drawing_utils # For drawing hand landmarks on image
 
 # Variables for relative movement
 prev_cx, prev_cy = None, None       # Store previous fingertip position for relative movement
-sensitivity = 7                     # Scale factor to make finger motion control cursor speed
+sensitivity = 8                   # Scale factor to make finger motion control cursor speed
+thumb_to_index_threshold = 20        # Enable index tracking to move the pointer
 
 # Variables for smoothing movement
 smooth_cx, smooth_cy = None,None
-smooth_factor = .5 # Lower = Smoother, Slower response (eg: 0.2 - 0.5)
+smooth_factor = .1 # Lower = Smoother, Slower response (eg: 0.2 - 0.5)
 #Main Loop (runs every frame): infinite loop for continuous webcam capture
 while True:
     #-------------------- Capture Frame & Convert -----------------------------------
@@ -50,8 +62,10 @@ while True:
                 if id == 12 :
                     middle_x = float((1-lm.x) * w)
                     middle_y = float(lm.y * h)
-                #----------------------- Index Finger Tracking ---------------------------------
+                #----------------------- Index Finger Tip Tracking ---------------------------------
                 if id == 8:  # Index fingertip              # Track landmark 8 (index fingertip) for cursor control
+                    index_x_tip = float((1 - lm.x) * w)
+                    index_y_tip = float(lm.y * h)
                     #----------- Calculate Position & Relative Movement -----------------------------------
                     flipped_lm_x = 1 - lm.x         # Landmark (lm.x) is normalized (0-1). Flipping x because image was not flipped
                     cx = float(flipped_lm_x * w)      # Convert normalized landmark to pixel coordinates (cx,cy)
@@ -66,30 +80,37 @@ while True:
                     if prev_cx is not None and prev_cy is not None:     # Calculate difference (dx,dy) between current and previous fingertip position
                         dx = (smooth_cx - prev_cx) * sensitivity               # Multiply by sensitivity
                         dy = (smooth_cy - prev_cy) * sensitivity
-
+                #-------------------- Index finger near knuckle tracking -------------------
+                if id == 5:
+                    index_x = float((1 - lm.x) * w)
+                    index_y = float(lm.y * h)
+                    #Only move if thumb is closer to index finger
+                    distance_thumb_to_index = math.hypot(index_x - thumb_x, index_y - thumb_y)
+                    if distance_thumb_to_index < thumb_to_index_threshold:
+                        cv2.putText(img, "Index finger tracking on", (250, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 225), 3)
                         pyautogui.moveRel(dx, dy)                             # Move mouse relative to its current position
                     #------------------ Update Previous Position ---------------------------------------------
                     prev_cx, prev_cy = smooth_cx, smooth_cy                   # Store current coordinates for next frame
+
+            #============================== MOUSE BUTTONS LOGIC ========================================================
+
             # -------------------- Left Clicking Mechanism --------------------------------------------
-            distance_left_click = math.hypot(pinky_x - thumb_x, pinky_y - thumb_y)
+            distance_left_click = math.hypot(index_x_tip - thumb_x, index_y_tip - thumb_y)
             left_click_threshold = 20
             if distance_left_click < left_click_threshold:
-                # pyautogui.click()
-                # pyautogui.sleep(.5)
+                pyautogui.click()
                 cv2.putText(img, "Left Click", (250,250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 225), 3)
             # -------------------- Right Clicking Mechanism ------------------------------------------
-            distance_right_click = math.hypot(ring_x - thumb_x, ring_y - thumb_y)
+            distance_right_click = math.hypot(middle_x - thumb_x, middle_y - thumb_y)
             right_click_threshold = 20
             if distance_right_click < right_click_threshold:
                 pyautogui.rightClick()
-                # pyautogui.sleep(.5)
                 cv2.putText(img, "Right Click",(250,250),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,255),3)
-            #---------------------- Middle button Mechanism ------------------------------------------
+            #---------------------- button 3 Mechanism %% ADD CLICK EVENT HERE %%%%%%%%%%%%%%%%%%%%%%%%%------------------------------------------
             distance_button3_click = math.hypot(middle_x - thumb_x, middle_y - thumb_y)
             button3_click_threshold = 20
             if distance_button3_click < button3_click_threshold:
-                #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ADD BUTTON PRESS EVENT HERE !!!! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                pyautogui.leftClick()
+                # pyautogui.leftClick()
                 cv2.putText(img,"left_click",(250,250),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,225),3)
             #---------------------- Draw Hand Landmarks (For Visualization) -----------------------------------
             mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS)     # Draw lines connecting hand landmarks on image for feedback
@@ -99,7 +120,10 @@ while True:
         smooth_cx,smooth_cy = None,None     # Reset Smoothing
 
     #------------------------ Display camera feed ---------------------------------------------------------------
-    cv2.imshow("Gesture Mouse", img)        # Show webcam window with hand landmarks drawn
+    custom_width,custom_height = 1024,600
+    resized_img = cv2.resize(img,(custom_width,custom_height))
+    cv2.imshow("Gesture Mouse", resized_img)        # Show webcam window with hand landmarks drawn
+    # make_window_always_on_top("Gesture Mouse")
     if cv2.waitKey(1) & 0xFF == ord('q'):           # Press 'q' key to exit the loop
         break
 #--------- Cleanup ----------------------------------------------------------------------------------------------
